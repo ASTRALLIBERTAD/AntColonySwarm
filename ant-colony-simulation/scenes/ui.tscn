@@ -1,0 +1,90 @@
+[gd_scene load_steps=2 format=3 uid="uid://cfn5nt25w6vfn"]
+
+[ext_resource type="Script" uid="uid://qfvp5luqwlv6" path="res://scripts/ui_controller.gd" id="1_nt7q6"]
+
+[node name="UI" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_nt7q6")
+
+[node name="StatsPanel" type="PanelContainer" parent="."]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 260.0
+offset_bottom = 310.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="StatsPanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="GenerationLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Generation: 0
+"
+
+[node name="AntsLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Ants: 0"
+
+[node name="FoodLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Food Collected: 0"
+
+[node name="TimeLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Time: 0.0s"
+
+[node name="FitnessLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Best Fitness: 0.0"
+
+[node name="PheromoneLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Pheromone: 0\\"
+
+[node name="ArduinoLabel" type="Label" parent="StatsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Arduino: ✗ Disconnected"
+
+[node name="ControlsPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -2190.0
+offset_top = 10.0
+offset_right = -1930.0
+offset_bottom = 210.0
+grow_horizontal = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ControlsPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="ExportButton" type="Button" parent="ControlsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Export Best Ant (E)"
+
+[node name="SendButton" type="Button" parent="ControlsPanel/VBoxContainer"]
+layout_mode = 2
+disabled = true
+text = "Send to Arduino (S)"
+
+[node name="ResetButton" type="Button" parent="ControlsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Reset Simulation (R)"
+
+[node name="Label" type="Label" parent="ControlsPanel/VBoxContainer"]
+layout_mode = 2
+text = "Controls:
+        P - Toggle Pheromones
+        F - Spawn Food (click)
+        O - Spawn Obstacle
+        Right-Click - Spawn Food"

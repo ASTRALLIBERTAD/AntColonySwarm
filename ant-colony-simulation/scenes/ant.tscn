@@ -1,0 +1,39 @@
+[gd_scene load_steps=4 format=3 uid="uid://couynlycfl1c8"]
+
+[ext_resource type="Script" uid="uid://nakfydb8mvdj" path="res://scripts/ant.gd" id="1_4s44o"]
+[ext_resource type="Texture2D" uid="uid://v360qw0tvini" path="res://assets/sprites/ant.png" id="2_4guct"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_4guct"]
+
+[node name="Ant" type="CharacterBody2D"]
+collision_mask = 2
+motion_mode = 1
+script = ExtResource("1_4s44o")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_4guct")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_4guct")
+
+[node name="SensorVisual" type="Node2D" parent="."]
+
+[node name="TrailParticles" type="CPUParticles2D" parent="."]
+emitting = false
+lifetime = 0.5
+direction = Vector2(0, 0)
+spread = 180.0
+gravity = Vector2(0, 0)
+initial_velocity_min = 10.0
+initial_velocity_max = 20.0
+scale_amount_min = 2.0
+scale_amount_max = 4.0
+color = Color(0.89411765, 0.9098039, 0.09019608, 1)
+
+[node name="StateLabel" type="Label" parent="."]
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="DebugLabel" type="Label" parent="."]
+offset_right = 40.0
+offset_bottom = 23.0

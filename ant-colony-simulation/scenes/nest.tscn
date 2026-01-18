@@ -1,0 +1,38 @@
+[gd_scene load_steps=4 format=3 uid="uid://bi6f0iuifjwou"]
+
+[ext_resource type="Script" uid="uid://dagbjog0e7jw3" path="res://scripts/nest.gd" id="1_den8b"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_3y021"]
+size = Vector2(100, 100)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_tm8is"]
+radius = 50.0
+
+[node name="Nest" type="Area2D"]
+script = ExtResource("1_den8b")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+self_modulate = Color(0.44674665, 0.18710378, 0.007282953, 1)
+texture = SubResource("PlaceholderTexture2D_3y021")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_tm8is")
+
+[node name="Label" type="Label" parent="."]
+offset_top = -80.0
+offset_right = 56.0
+offset_bottom = -57.0
+text = "Food: 0"
+horizontal_alignment = 1
+
+[node name="CollectionParticles" type="CPUParticles2D" parent="."]
+emitting = false
+amount = 16
+one_shot = true
+emission_shape = 1
+emission_sphere_radius = 30.0
+direction = Vector2(0, -1)
+gravity = Vector2(0, 100)
+initial_velocity_min = 50.0
+initial_velocity_max = 100.0
+color = Color(1, 1, 0.29803923, 1)

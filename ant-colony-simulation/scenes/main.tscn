@@ -1,0 +1,41 @@
+[gd_scene load_steps=8 format=3 uid="uid://csj8np0o2exdi"]
+
+[ext_resource type="Script" uid="uid://b3j1ylmjjuc41" path="res://scripts/main.gd" id="1_tbgi4"]
+[ext_resource type="Shader" uid="uid://cbfg8ataq6xff" path="res://scenes/pheromone_map.gdshader" id="2_o6xl0"]
+[ext_resource type="Script" uid="uid://mehw8vrhwksj" path="res://scripts/pheromone_map.gd" id="2_tefeu"]
+[ext_resource type="PackedScene" uid="uid://bi6f0iuifjwou" path="res://scenes/nest.tscn" id="3_o6xl0"]
+[ext_resource type="Script" uid="uid://ctpqe5q6uy1dc" path="res://scripts/serial_bridge.gd" id="4_tipki"]
+[ext_resource type="PackedScene" uid="uid://cfn5nt25w6vfn" path="res://scenes/ui.tscn" id="5_85g3d"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_choun"]
+shader = ExtResource("2_o6xl0")
+shader_parameter/glow_strength = 1.0
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_tbgi4")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(960, 540)
+
+[node name="PheromoneMap" type="Node2D" parent="."]
+material = SubResource("ShaderMaterial_choun")
+script = ExtResource("2_tefeu")
+
+[node name="Nest" parent="." instance=ExtResource("3_o6xl0")]
+position = Vector2(523, 247)
+
+[node name="SerialBridge" type="Node" parent="."]
+script = ExtResource("4_tipki")
+
+[node name="UI" parent="." instance=ExtResource("5_85g3d")]
+
+[node name="Background" type="CanvasLayer" parent="."]
+layer = -1
+
+[node name="ColorRect" type="ColorRect" parent="Background"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.038397167, 0.038397167, 0.03839716, 1)

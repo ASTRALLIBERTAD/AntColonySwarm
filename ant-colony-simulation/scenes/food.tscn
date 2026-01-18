@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3 uid="uid://dv4lvgqu6vgla"]
+
+[ext_resource type="Script" uid="uid://dffs6bwo1bglf" path="res://scripts/food.gd" id="1_xven1"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_af40f"]
+size = Vector2(40, 40)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_370ap"]
+radius = 20.0
+
+[node name="Food" type="Area2D"]
+collision_layer = 0
+collision_mask = 0
+script = ExtResource("1_xven1")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+modulate = Color(0.25707674, 0.74676466, 0.40283296, 1)
+texture = SubResource("PlaceholderTexture2D_af40f")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_370ap")
+
+[node name="Label" type="Label" parent="."]
+offset_right = 40.0
+offset_bottom = 23.0
+text = "100
+"
+horizontal_alignment = 1

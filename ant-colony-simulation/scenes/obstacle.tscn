@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3 uid="uid://bd66a08s3qaa4"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_3xr6u"]
+size = Vector2(100, 100)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7ukg5"]
+size = Vector2(100, 100)
+
+[node name="Obstacle" type="StaticBody2D"]
+collision_layer = 2
+collision_mask = 0
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+modulate = Color(0.040964104, 0.11130399, 0.12277991, 1)
+texture = SubResource("PlaceholderTexture2D_3xr6u")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_7ukg5")
