@@ -10,18 +10,20 @@ var ant_scene = preload("res://scenes/ant.tscn")
 var food_scene = preload("res://scenes/food.tscn")
 
 @export var initial_ant_count: int = 30
-@export var initial_food_sources: int = 8  
-@export var food_respawn_distance: float = 150.0  
+@export var initial_food_sources: int = 12
+@export var food_spawn_radius_min: float = 150.0
+@export var food_spawn_radius_max: float = 450.0
 @export var enable_evolution: bool = true
-@export var generation_duration: float = 60.0
-@export var min_fitness_for_elite: float = 100.0
+@export var generation_duration: float = 90.0
 
 @export var tournament_size: int = 3
-@export var elite_percentage: float = 0.20  
+@export var elite_percentage: float = 0.20
 
 @export var auto_spawn_food: bool = true
-@export var spawn_food_threshold: int = 5  
-@export var max_food_sources: int = 12
+@export var spawn_food_threshold: int = 4
+@export var max_food_sources: int = 15
+@export var food_per_source_min: int = 60
+@export var food_per_source_max: int = 120
 
 var ants: Array[AntAgent] = []
 var food_sources: Array = []
@@ -32,9 +34,16 @@ var best_fitness: float = 0.0
 var total_food_collected: int = 0
 var simulation_time: float = 0.0
 
+var searched_tiles: Dictionary = {}
+var tiles_being_searched: Dictionary = {}
+var tile_size: float = 150.0
+var tile_timeout: float = 10.0
+
+var tile_search_duration: float = 30.0
+
 func _ready():
 	print("╔═══════════════════════════════════════════════╗")
-	print("║  ANT COLONY - PERSISTENT FOOD + TOURNAMENT   ║")
+	print("║  IMPROVED ANT COLONY - NO RESPAWN TRAINING   ║")
 	print("╚═══════════════════════════════════════════════╝")
 	
 	setup_world()
@@ -45,8 +54,10 @@ func _ready():
 	print("\n✓ Simulation ready!")
 	print("  Ants: ", ants.size())
 	print("  Food sources: ", food_sources.size())
+	print("  Food per source: %d-%d units" % [food_per_source_min, food_per_source_max])
 	print("  Tournament size: ", tournament_size)
 	print("  Elite percentage: %.0f%%" % (elite_percentage * 100))
+	print("  Generation duration: %.0fs" % generation_duration)
 	print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 func setup_world():
@@ -80,76 +91,52 @@ func spawn_ant(position: Vector2 = Vector2.ZERO, parent_data: Dictionary = {}) -
 func spawn_food_sources():
 	var viewport_size = get_viewport_rect().size
 	
-	var distances = [200, 250, 300, 350, 400, 450]
+	print("\n  🍎 Spawning initial food sources:")
 	
-	for i in range(initial_food_sources):
-		spawn_food_source_close()
+	var distance_ranges = [
+		{"min": 150, "max": 250, "count": 4},
+		{"min": 250, "max": 350, "count": 4},
+		{"min": 350, "max": 500, "count": 4}
+	]
+	
+	for range_info in distance_ranges:
+		for i in range(range_info.count):
+			spawn_food_at_distance(range_info.min, range_info.max)
 
-func spawn_food_source_close():
+func spawn_food_at_distance(min_dist: float, max_dist: float):
 	var food = food_scene.instantiate() as FoodSource
-
-	var angle = randf() * TAU
-	var distance = randf_range(120, 200) 
 	
+	var angle = randf() * TAU
+	var distance = randf_range(min_dist, max_dist)
 	var pos = nest.global_position + Vector2(distance, 0).rotated(angle)
 	
-	food.global_position = pos
-	food.food_amount = 100  
-	food.max_amount = 100
-	food.auto_respawn = true 
-	food.respawn_time = 15.0
-	food.is_infinite = false
-	
-	add_child(food)
-	food_sources.append(food)
-	food.food_depleted.connect(_on_food_depleted)
-	
-	print("  Food spawned at distance %.0f" % nest.global_position.distance_to(pos))
-
-func spawn_food_source(distance: float = 0.0):
 	var viewport_size = get_viewport_rect().size
-	var food = food_scene.instantiate() as FoodSource
-
-	var pos: Vector2
-	
-	if distance > 0:
-		var angle = randf() * TAU
-		pos = nest.global_position + Vector2(distance, 0).rotated(angle)
-	else:
-		var attempts = 0
-		while attempts < 50:
-			pos = Vector2(
-				randf_range(150, viewport_size.x - 150),
-				randf_range(150, viewport_size.y - 150)
-			)
-			if pos.distance_to(nest.global_position) > 200:
-				break
-			attempts += 1
-
 	pos.x = clamp(pos.x, 100, viewport_size.x - 100)
 	pos.y = clamp(pos.y, 100, viewport_size.y - 100)
 	
 	food.global_position = pos
-	food.food_amount = randi_range(40, 80) 
+	food.food_amount = randi_range(food_per_source_min, food_per_source_max)
 	food.max_amount = food.food_amount
-	food.auto_respawn = false  
+	food.auto_respawn = false
 	food.is_infinite = false
 	
 	add_child(food)
 	food_sources.append(food)
 	food.food_depleted.connect(_on_food_depleted)
+	
+	print("    Food at distance %.0f: %d units" % [distance, food.food_amount])
 
 func spawn_food_at_mouse():
 	var mouse_pos = get_viewport().get_mouse_position()
 	var food = food_scene.instantiate() as FoodSource
 	food.global_position = mouse_pos
-	food.food_amount = 50
-	food.max_amount = 50
+	food.food_amount = 75
+	food.max_amount = 75
 	food.auto_respawn = false
 	add_child(food)
 	food_sources.append(food)
 	food.food_depleted.connect(_on_food_depleted)
-	print("✓ Manual food spawned at mouse position")
+	print("✓ Manual food spawned at mouse position (75 units)")
 
 func connect_signals():
 	nest.food_delivered.connect(_on_food_delivered)
@@ -181,6 +168,8 @@ func _process(delta: float):
 	if auto_spawn_food:
 		check_and_spawn_food()
 	
+	cleanup_tile_claims()
+	
 	update_statistics()
 	
 	if enable_evolution:
@@ -189,16 +178,33 @@ func _process(delta: float):
 			evolve_population()
 			generation_timer = 0.0
 
+func cleanup_tile_claims():
+	var tiles_to_remove = []
+	for tile in tiles_being_searched.keys():
+		var time_since_claimed = simulation_time - tiles_being_searched[tile]
+		if time_since_claimed > tile_timeout:
+			tiles_to_remove.append(tile)
+	
+	for tile in tiles_to_remove:
+		tiles_being_searched.erase(tile)
+
 func check_and_spawn_food():
-	var active_food = 0
+	var active_food = count_active_food()
+	
+	if active_food <= spawn_food_threshold and food_sources.size() < max_food_sources:
+		var to_spawn = min(3, max_food_sources - food_sources.size())
+		print("⚠ Only %d food sources active, spawning %d more..." % [active_food, to_spawn])
+		
+		for i in range(to_spawn):
+			var distance = randf_range(food_spawn_radius_min, food_spawn_radius_max)
+			spawn_food_at_distance(distance - 50, distance + 50)
+
+func count_active_food() -> int:
+	var count = 0
 	for food in food_sources:
 		if is_instance_valid(food) and not food.depleted:
-			active_food += 1
-	
-	if active_food <= spawn_food_threshold:
-		print("⚠ Only %d food, spawning more..." % active_food)
-		for i in range(3): 
-			spawn_food_source_close()
+			count += 1
+	return count
 
 func update_statistics():
 	best_fitness = 0.0
@@ -213,10 +219,11 @@ func update_statistics():
 			best_ant = ant
 	
 	if ui:
-		var active_food = 0
+		var active_food = count_active_food()
+		var total_food_remaining = 0
 		for food in food_sources:
 			if is_instance_valid(food) and not food.depleted:
-				active_food += 1
+				total_food_remaining += food.food_amount
 		
 		ui.update_statistics({
 			"generation": current_generation,
@@ -224,6 +231,7 @@ func update_statistics():
 			"food_collected": total_food_collected,
 			"active_food": active_food,
 			"total_food": food_sources.size(),
+			"food_remaining": total_food_remaining,
 			"simulation_time": simulation_time,
 			"best_fitness": best_fitness,
 			"pheromone_total": pheromone_map.get_total_pheromone(),
@@ -236,11 +244,13 @@ func evolve_population():
 	print("\n" + "═".repeat(70))
 	print("║ GENERATION %d COMPLETE" % current_generation)
 	print("═".repeat(70))
+	
 	var fitness_data = []
 	var total_fitness = 0.0
 	var total_food = 0
 	var ants_with_food = 0
 	var max_food = 0
+	var total_distance = 0.0
 	
 	for ant in ants:
 		if not is_instance_valid(ant):
@@ -262,6 +272,7 @@ func evolve_population():
 		
 		total_fitness += fitness
 		total_food += food
+		total_distance += ant.distance_traveled
 		if food > 0:
 			ants_with_food += 1
 		max_food = max(max_food, food)
@@ -270,6 +281,7 @@ func evolve_population():
 	
 	var avg_fitness = total_fitness / fitness_data.size() if fitness_data.size() > 0 else 0.0
 	var avg_food = float(total_food) / float(fitness_data.size()) if fitness_data.size() > 0 else 0.0
+	var avg_distance = total_distance / fitness_data.size() if fitness_data.size() > 0 else 0.0
 	
 	print("\n  📊 COLONY PERFORMANCE:")
 	print("    Total Food Collected: %d" % total_food)
@@ -278,79 +290,64 @@ func evolve_population():
 	print("    Success Rate: %d/%d (%.1f%%)" % [
 		ants_with_food, 
 		ants.size(), 
-		(ants_with_food * 100.0 / ants.size())
+		(ants_with_food * 100.0 / ants.size()) if ants.size() > 0 else 0
 	])
+	print("    Average Distance: %.0f units" % avg_distance)
 	
 	print("\n  💪 FITNESS METRICS:")
 	print("    Average Fitness: %.1f" % avg_fitness)
-	print("    Best Fitness: %.1f" % fitness_data[0]["fitness"] if fitness_data.size() > 0 else 0)
-	print("    Worst Fitness: %.1f" % fitness_data[-1]["fitness"] if fitness_data.size() > 0 else 0)
+	print("    Best Fitness: %.1f" % (fitness_data[0]["fitness"] if fitness_data.size() > 0 else 0))
+	print("    Worst Fitness: %.1f" % (fitness_data[-1]["fitness"] if fitness_data.size() > 0 else 0))
 	print("    Fitness Range: %.1f" % ((fitness_data[0]["fitness"] - fitness_data[-1]["fitness"]) if fitness_data.size() > 0 else 0))
 	
 	print("\n  🏆 TOP 3 ANTS:")
 	for i in range(min(3, fitness_data.size())):
 		var data = fitness_data[i]
-		print("    #%d: Fitness=%.1f, Food=%d, Dist=%.0f, Collisions=%d, Stuck=%d" % [
+		print("    #%d: Fitness=%.1f, Food=%d, Dist=%.0f, Circles=%d" % [
 			i + 1,
 			data["fitness"],
 			data["food"],
 			data["distance"],
-			data["collisions"],
-			data["stuck"]
+			data["ant"].revisit_count
 		])
 	
-	print("\n  💀 WORST 3 ANTS (Being Eliminated):")
-	var worst_start = max(0, fitness_data.size() - 3)
-	for i in range(worst_start, fitness_data.size()):
-		var data = fitness_data[i]
-		print("    #%d: Fitness=%.1f, Food=%d, Collisions=%d, Stuck=%d, Failed=%d" % [
-			fitness_data.size() - i,
-			data["fitness"],
-			data["food"],
-			data["collisions"],
-			data["stuck"],
-			data["failed"]
-		])
-	
-	var active_food = 0
+	var active_food = count_active_food()
 	var total_food_remaining = 0
 	for food in food_sources:
-		if is_instance_valid(food):
-			if not food.depleted:
-				active_food += 1
-				total_food_remaining += food.food_amount
+		if is_instance_valid(food) and not food.depleted:
+			total_food_remaining += food.food_amount
 	
 	print("\n  🍎 FOOD SOURCES:")
 	print("    Active: %d/%d" % [active_food, food_sources.size()])
 	print("    Total Food Remaining: %d units" % total_food_remaining)
+	print("    Depleted This Gen: %d" % (food_sources.size() - active_food))
 	
 	var elite_count = max(int(ants.size() * elite_percentage), 3)
 	var elite_ants = []
-
-	for i in range(elite_count):
-		if i < fitness_data.size():
+	
+	for i in range(min(elite_count, fitness_data.size())):
+		if fitness_data[i]["food"] > 0:
 			elite_ants.append(fitness_data[i]["ant"])
 	
-	print("\n  🎖️ ELITE SELECTION:")
-	print("    Elite count: %d (top %.0f%%)" % [elite_count, elite_percentage * 100])
+	if elite_ants.size() < 3:
+		print("  ⚠ WARNING: Only %d ants collected food - filling elite with best performers" % elite_ants.size())
+		for i in range(min(elite_count, fitness_data.size())):
+			if not fitness_data[i]["ant"] in elite_ants:
+				elite_ants.append(fitness_data[i]["ant"])
+			if elite_ants.size() >= elite_count:
+				break
 	
-	if elite_ants.size() > 0:
-		print("    Elite fitness range: %.1f to %.1f" % [
-			fitness_data[0]["fitness"],
-			fitness_data[min(elite_count - 1, fitness_data.size() - 1)]["fitness"]
-		])
-		print("    Elite food range: %d to %d" % [
-			fitness_data[0]["food"],
-			fitness_data[min(elite_count - 1, fitness_data.size() - 1)]["food"]
-		])
-
+	print("\n  🎖️ ELITE SELECTION:")
+	print("    Elite count: %d (top %.0f%%)" % [elite_ants.size(), elite_percentage * 100])
+	print("    All collected food: %s" % ("✓" if elite_ants.size() == ants_with_food else "✗"))
+	
 	print("\n  🎲 TOURNAMENT SELECTION:")
 	print("    Tournament size: %d" % tournament_size)
-	print("    Creating %d offspring..." % (ants.size() - elite_count))
+	print("    Creating %d offspring..." % (ants.size() - elite_ants.size()))
 	
 	var offspring_created = 0
 	
-	for i in range(elite_count, ants.size()):
+	for i in range(elite_ants.size(), ants.size()):
 		if i >= ants.size():
 			break
 		
@@ -362,51 +359,104 @@ func evolve_population():
 		var parent2 = tournament_select(fitness_data)
 		
 		var child_traits = crossover_traits(parent1, parent2)
-		
 		child_traits = mutate_traits(child_traits)
 		
 		child_ant.import_brain_data({"traits": child_traits})
-		
 		reset_ant(child_ant)
 		
 		offspring_created += 1
 	
+	for ant in elite_ants:
+		reset_ant(ant)
+	
 	print("    ✓ Created %d offspring via tournament" % offspring_created)
+	print("    ✓ Reset %d elite ants" % elite_ants.size())
 	
 	print("\n  ✅ Generation %d evolution complete!" % current_generation)
 	print("═".repeat(70) + "\n")
 
-	var qualified_elite = []
-	for i in range(fitness_data.size()):
-		if fitness_data[i]["food"] > 0:  
-			qualified_elite.append(fitness_data[i]["ant"])
-			if qualified_elite.size() >= elite_count:
-				break
+func get_unsearched_tile(ant_position: Vector2, sector: int) -> Vector2i:
+	var viewport_size = get_viewport_rect().size
+	var max_tile_x = int(viewport_size.x / tile_size)
+	var max_tile_y = int(viewport_size.y / tile_size)
 	
-	if qualified_elite.size() < 3:
-		print("  ⚠ WARNING: Only %d ants collected food!" % qualified_elite.size())
-		for i in range(min(elite_count, fitness_data.size())):
-			if not fitness_data[i]["ant"] in qualified_elite:
-				qualified_elite.append(fitness_data[i]["ant"])
+	var sector_tiles = get_sector_tiles(sector, max_tile_x, max_tile_y)
 	
-	elite_ants = qualified_elite
+	var closest_unsearched = Vector2i(-1, -1)
+	var closest_distance = 999999.0
 	
-	print("\n  🎖️ ELITE SELECTION:")
-	print("    Elite count: %d (from %d that collected food)" % [elite_ants.size(), ants_with_food])
+	for tile in sector_tiles:
+		if searched_tiles.has(tile):
+			var time_since_search = simulation_time - searched_tiles[tile]
+			if time_since_search < 30.0:
+				continue
+		
+		if tiles_being_searched.has(tile):
+			var time_since_claimed = simulation_time - tiles_being_searched[tile]
+			if time_since_claimed < tile_timeout:
+				continue
+		
+		var tile_world = tile_to_world_pos(tile)
+		var distance = ant_position.distance_to(tile_world)
+		
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_unsearched = tile
+	
+	return closest_unsearched
+
+func get_sector_tiles(sector: int, max_x: int, max_y: int) -> Array:
+	var tiles = []
+	var center_x = max_x / 2
+	var center_y = max_y / 2
+	
+	var sector_angles = {
+		0: [0, 45],      # N
+		1: [45, 90],     # NE
+		2: [90, 135],    # E
+		3: [135, 180],   # SE
+		4: [180, 225],   # S
+		5: [225, 270],   # SW
+		6: [270, 315],   # W
+		7: [315, 360]    # NW
+	}
+	
+	var angle_range = sector_angles.get(sector, [0, 45])
+	var min_angle = angle_range[0]
+	var max_angle = angle_range[1]
+	
+	for x in range(max_x):
+		for y in range(max_y):
+			var tile = Vector2i(x, y)
+			var tile_world = tile_to_world_pos(tile)
+			var to_tile = tile_world - nest.global_position
+			var angle = rad_to_deg(to_tile.angle())
+			if angle < 0:
+				angle += 360
+			
+			if angle >= min_angle and angle < max_angle:
+				tiles.append(tile)
+	
+	return tiles
+
+func tile_to_world_pos(tile: Vector2i) -> Vector2:
+	return Vector2(tile.x * tile_size + tile_size / 2, tile.y * tile_size + tile_size / 2)
+
+func mark_tile_being_searched(tile: Vector2i):
+	tiles_being_searched[tile] = simulation_time
+
+func mark_tile_searched(tile: Vector2i):
+	searched_tiles[tile] = simulation_time
+	if tiles_being_searched.has(tile):
+		tiles_being_searched.erase(tile)
 
 func tournament_select(fitness_data: Array) -> AntAgent:
-	"""
-	Tournament Selection:
-	1. Pick N random ants (tournament_size)
-	2. Return the best one from that group
-	This maintains diversity better than pure elitism
-	"""
-	
 	var tournament_contestants = []
 	
 	for i in range(tournament_size):
 		var random_index = randi() % fitness_data.size()
 		tournament_contestants.append(fitness_data[random_index])
+	
 	var winner = tournament_contestants[0]
 	for contestant in tournament_contestants:
 		if contestant.fitness > winner.fitness:
@@ -414,11 +464,7 @@ func tournament_select(fitness_data: Array) -> AntAgent:
 	
 	return winner.ant
 
-
 func crossover_traits(parent1: AntAgent, parent2: AntAgent) -> Dictionary:
-	"""
-	Uniform crossover - randomly inherit each trait from either parent
-	"""
 	var traits = {}
 	
 	traits["food_detection_range"] = parent1.food_detection_range if randf() > 0.5 else parent2.food_detection_range
@@ -431,11 +477,8 @@ func crossover_traits(parent1: AntAgent, parent2: AntAgent) -> Dictionary:
 	return traits
 
 func mutate_traits(traits: Dictionary) -> Dictionary:
-	"""
-	Mutation: Random changes to traits
-	"""
-	var mutation_rate = 0.25 
-	var mutation_strength = 0.15  
+	var mutation_rate = 0.3
+	var mutation_strength = 0.2
 	
 	for trait_name in traits.keys():
 		if randf() < mutation_rate:
@@ -445,32 +488,43 @@ func mutate_traits(traits: Dictionary) -> Dictionary:
 			
 			match trait_name:
 				"food_detection_range":
-					traits[trait_name] = clamp(traits[trait_name], 50.0, 150.0)
+					traits[trait_name] = clamp(traits[trait_name], 50.0, 200.0)
 				"pheromone_follow_strength":
 					traits[trait_name] = clamp(traits[trait_name], 0.5, 5.0)
 				"pheromone_deposit_rate":
-					traits[trait_name] = clamp(traits[trait_name], 1.0, 15.0)
+					traits[trait_name] = clamp(traits[trait_name], 1.0, 20.0)
 				"exploration_randomness":
-					traits[trait_name] = clamp(traits[trait_name], 0.1, 1.0)
+					traits[trait_name] = clamp(traits[trait_name], 0.1, 1.5)
 				"max_speed":
 					traits[trait_name] = clamp(traits[trait_name], 100.0, 250.0)
 				"turn_speed":
-					traits[trait_name] = clamp(traits[trait_name], 3.0, 10.0)
+					traits[trait_name] = clamp(traits[trait_name], 2.0, 10.0)
 	
 	return traits
 
 func reset_ant(ant: AntAgent):
-	"""Reset ant to starting state"""
 	ant.food_collected = 0
 	ant.successful_returns = 0
 	ant.distance_traveled = 0.0
 	ant.time_alive = 0.0
+	ant.collision_count = 0
+	ant.times_stuck = 0
+	ant.failed_food_attempts = 0
+	ant.visited_positions.clear()
+	ant.exploration_coverage = 0.0
+	ant.revisit_count = 0
+	ant.position_history.clear()
+	ant.history_check_interval = 0.0
+	ant.found_food_signal = false
+	ant.signal_timer = 0.0
+	ant.food_location = Vector2.ZERO
+	ant.current_target_tile = Vector2i(-1, -1)
+	ant.time_in_current_tile = 0.0
 	ant.global_position = nest.get_position_for_ant()
 	ant.current_state = AntAgent.State.WANDERING
 	ant.has_food = false
 	ant.target_food = null
 	ant.modulate = Color.WHITE
-
 
 func export_best_ant():
 	if not best_ant or not is_instance_valid(best_ant):
@@ -492,20 +546,16 @@ func export_best_ant():
 func send_to_arduino():
 	print("✗ Arduino integration disabled for debugging")
 
-
 func _on_food_delivered(amount: int, total: int):
 	total_food_collected += amount
 
 func _on_food_depleted(food_source: FoodSource):
-	print("⚠ Food source depleted, %d sources remaining" % count_active_food())
-
-func count_active_food() -> int:
-	var count = 0
-	for food in food_sources:
-		if is_instance_valid(food) and not food.depleted:
-			count += 1
-	return count
-
+	var active = count_active_food()
+	print("⚠ Food depleted at (%.0f, %.0f) - %d active sources remaining" % [
+		food_source.global_position.x,
+		food_source.global_position.y,
+		active
+	])
 
 func reset_simulation():
 	print("\n⟲ Resetting simulation...")
@@ -526,6 +576,9 @@ func reset_simulation():
 	generation_timer = 0.0
 	best_fitness = 0.0
 	best_ant = null
+	
+	searched_tiles.clear()
+	tiles_being_searched.clear()
 	
 	pheromone_map.clear_all_pheromones()
 	nest.food_storage = 0

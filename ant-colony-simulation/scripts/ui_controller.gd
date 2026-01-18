@@ -32,11 +32,22 @@ func update_statistics(stats: Dictionary):
 	if food_label:
 		var active = stats.get("active_food", 0)
 		var total = stats.get("total_food", 0)
-		food_label.text = "Food: %d collected | %d/%d active" % [
-			stats.get("food_collected", 0),
+		var collected = stats.get("food_collected", 0)
+		var remaining = stats.get("food_remaining", 0)
+		
+		food_label.text = "Food: %d collected | %d/%d sources (%d units left)" % [
+			collected,
 			active,
-			total
+			total,
+			remaining
 		]
+		
+		if active <= 3:
+			food_label.modulate = Color.RED
+		elif active <= 6:
+			food_label.modulate = Color.YELLOW
+		else:
+			food_label.modulate = Color.WHITE
 	
 	if time_label:
 		var time = stats.get("simulation_time", 0.0)
