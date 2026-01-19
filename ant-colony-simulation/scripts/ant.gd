@@ -19,7 +19,7 @@ var nest_position: Vector2
 
 @export var follow_other_ants: bool = true
 @export var ant_attraction_strength: float = 0.5
-@export var ant_detection_range: float = 150.0
+@export var ant_detection_range: float = 100.0
 @export var communication_range: float = 300.0
 
 @export var max_speed: float = 150.0
@@ -31,6 +31,9 @@ var nest_position: Vector2
 @export var pheromone_follow_strength: float = 2.0
 @export var pheromone_deposit_rate: float = 10.0
 @export var exploration_randomness: float = 0.4
+
+@export var scout_tendency: float = 0.5
+@export var forager_efficiency: float = 0.5
 
 var sensors: Array[RayCast2D] = []
 const NUM_SENSORS: int = 8
@@ -52,6 +55,10 @@ var revisit_count: int = 0
 var position_history: Array = []
 var history_check_interval: float = 0.0
 
+var food_sources_discovered: int = 0
+var unique_food_sources: Array = []
+var discovery_bonus_earned: int = 0
+
 var found_food_signal: bool = false
 var signal_timer: float = 0.0
 var signal_duration: float = 5.0
@@ -59,6 +66,7 @@ var food_location: Vector2 = Vector2.ZERO
 
 @export var enable_sector_search: bool = true
 @export var enable_grid_search: bool = true
+@export var enable_neural_learning: bool = true
 var assigned_sector: int = 0
 var sector_bias_strength: float = 1.5
 
@@ -66,6 +74,15 @@ var current_target_tile: Vector2i = Vector2i(-1, -1)
 var tile_search_radius: float = 80.0
 var time_in_current_tile: float = 0.0
 var tile_search_duration: float = 5.0
+
+var brain: NeuralNetwork
+var experience_replay: ExperienceReplay
+var last_state: Array = []
+var last_action: Array = []
+var last_reward: float = 0.0
+var cumulative_reward: float = 0.0
+var learning_step_counter: int = 0
+var steps_between_learning: int = 10
 
 var search_tile_size: float = 100.0
 var search_target_tile: Vector2i = Vector2i.ZERO
@@ -81,6 +98,10 @@ func _ready():
 	setup_sensors()
 	setup_debug_label()
 	add_to_group("ants")
+	
+	if enable_neural_learning:
+		brain = NeuralNetwork.new(10, 16, 4)
+		experience_replay = ExperienceReplay.new()
 	
 	await get_tree().process_frame
 	var all_ants = get_tree().get_nodes_in_group("ants")
@@ -112,6 +133,7 @@ func _physics_process(delta: float):
 	time_alive += delta
 	history_check_interval += delta
 	time_in_current_tile += delta
+	learning_step_counter += 1
 	
 	if found_food_signal:
 		signal_timer += delta
@@ -124,6 +146,27 @@ func _physics_process(delta: float):
 	
 	track_exploration()
 	detect_circling()
+	
+	if enable_neural_learning:
+		var neural_state = get_neural_state()
+		var immediate_reward = calculate_immediate_reward(delta)
+		cumulative_reward += immediate_reward
+		
+		if last_state.size() > 0:
+			experience_replay.add_experience(
+				last_state,
+				last_action,
+				immediate_reward,
+				neural_state,
+				has_food
+			)
+		
+		if learning_step_counter >= steps_between_learning and experience_replay.get_memory_size() > 32:
+			learn_from_experience()
+			learning_step_counter = 0
+		
+		last_state = neural_state
+		last_reward = immediate_reward
 	
 	if movement < 1.0:
 		stuck_timer += delta
@@ -187,8 +230,9 @@ func detect_circling():
 		
 		avg_distance_from_history /= position_history.size()
 		
-		if avg_distance_from_history < 150.0:
+		if avg_distance_from_history < 100.0:
 			revisit_count += 1
+
 
 func find_closest_food() -> Node2D:
 	var food_sources = get_tree().get_nodes_in_group("food")
@@ -227,7 +271,31 @@ func try_pickup_food() -> bool:
 				current_state = State.CARRYING_FOOD
 				modulate = Color.ORANGE
 				
+				if not unique_food_sources.has(target_food):
+					unique_food_sources.append(target_food)
+					food_sources_discovered += 1
+					
+					var others_at_this_food = 0
+					var all_ants = get_tree().get_nodes_in_group("ants")
+					for ant in all_ants:
+						if ant != self and is_instance_valid(ant):
+							if ant.target_food == target_food or (ant.has_food and ant.global_position.distance_to(target_food.global_position) < 100):
+								others_at_this_food += 1
+					
+					if others_at_this_food == 0:
+						discovery_bonus_earned += 1
+				
 				pheromone_deposit_rate = min(pheromone_deposit_rate * 1.05, 20.0)
+				
+				if enable_neural_learning and experience_replay:
+					var current_state_array = get_neural_state()
+					experience_replay.add_experience(
+						last_state if last_state.size() > 0 else current_state_array,
+						last_action if last_action.size() > 0 else [0.0, 0.0, 0.0, 0.0],
+						100.0,
+						current_state_array,
+						true
+					)
 				
 				broadcast_food_found(target_food.global_position)
 				
@@ -244,11 +312,22 @@ func wander_behavior(delta: float):
 		if try_pickup_food():
 			return
 	
+	if enable_neural_learning and brain:
+		var neural_state = get_neural_state()
+		if neural_state.size() > 0:
+			var neural_action = brain.forward(neural_state)
+			if neural_action.size() > 0:
+				last_action = neural_action.duplicate()
+				
+				var neural_velocity = apply_neural_action(neural_action)
+				velocity = neural_velocity
+				return
+	
 	var food_signal_direction = check_nearby_food_signals()
 	
 	if food_signal_direction != Vector2.ZERO:
-		var target_angle = food_signal_direction.angle()
-		rotation = lerp_angle(rotation, target_angle, turn_speed * delta * 2.0)
+		var signal_angle = food_signal_direction.angle()
+		rotation = lerp_angle(rotation, signal_angle, turn_speed * delta * 2.0)
 		velocity = Vector2.RIGHT.rotated(rotation) * max_speed * 1.2
 		return
 	
@@ -256,10 +335,10 @@ func wander_behavior(delta: float):
 	var pheromone_strength = pheromone_map.get_pheromone(global_position)
 	
 	if pheromone_strength > 0.5:
-		var forward = Vector2.RIGHT.rotated(rotation)
-		var desired_direction = (forward + pheromone_direction * pheromone_follow_strength).normalized()
-		var target_angle = desired_direction.angle()
-		rotation = lerp_angle(rotation, target_angle, turn_speed * delta)
+		var forward_dir = Vector2.RIGHT.rotated(rotation)
+		var pheromone_desired = (forward_dir + pheromone_direction * pheromone_follow_strength).normalized()
+		var pheromone_angle = pheromone_desired.angle()
+		rotation = lerp_angle(rotation, pheromone_angle, turn_speed * delta)
 		velocity = Vector2.RIGHT.rotated(rotation) * max_speed
 		return
 	
@@ -278,13 +357,13 @@ func wander_behavior(delta: float):
 	var obstacle_avoid = get_obstacle_avoidance()
 	
 	var desired_direction = (
-		forward + 
-		random +
-		grid_tile_direction * 3.0 +
-		sector_direction * sector_bias_strength +
-		swarm_pull * 1.0 +
-		away_from_nest +
-		obstacle_avoid
+		forward * 1.0 + 
+		random * 1.0 +
+		grid_tile_direction * 4.0 +
+		sector_direction * 3.0 +
+		swarm_pull * 0.1 +
+		away_from_nest * 2.0 +
+		obstacle_avoid * 2.0
 	).normalized()
 	
 	var target_angle = desired_direction.angle()
@@ -347,6 +426,16 @@ func deliver_food():
 	if nest and nest.has_method("receive_food"):
 		nest.receive_food(1)
 	
+	if enable_neural_learning and experience_replay:
+		var current_state_array = get_neural_state()
+		experience_replay.add_experience(
+			last_state if last_state.size() > 0 else current_state_array,
+			last_action if last_action.size() > 0 else [0.0, 0.0, 0.0, 0.0],
+			200.0,
+			current_state_array,
+			true
+		)
+	
 	current_state = State.WANDERING
 	target_food = null
 	modulate = Color.WHITE
@@ -379,6 +468,7 @@ func get_swarm_cohesion() -> Vector2:
 	
 	var nearby_ants = get_tree().get_nodes_in_group("ants")
 	var cohesion = Vector2.ZERO
+	var separation = Vector2.ZERO
 	var count = 0
 	
 	for ant in nearby_ants:
@@ -387,17 +477,22 @@ func get_swarm_cohesion() -> Vector2:
 		
 		var distance = global_position.distance_to(ant.global_position)
 		
-		if distance < ant_detection_range:
+		if distance < 150:
+			var away_from_ant = global_position - ant.global_position
+			separation += away_from_ant.normalized() * (150.0 / max(distance, 1.0))
+			count += 1
+		elif distance < ant_detection_range:
 			var to_ant = ant.global_position - global_position
 			
 			if ant.has_food:
-				cohesion += to_ant.normalized() * 2.0
+				cohesion += to_ant.normalized() * 0.5
 			else:
-				cohesion += to_ant.normalized()
+				cohesion += to_ant.normalized() * 0.1
 			count += 1
 	
 	if count > 0:
-		return (cohesion / count).normalized() * ant_attraction_strength
+		var result = separation * 2.0 + cohesion * 0.1
+		return result.normalized() * ant_attraction_strength
 	
 	return Vector2.ZERO
 
@@ -480,22 +575,169 @@ func world_to_tile(world_pos: Vector2) -> Vector2i:
 	var tile_size = 150.0
 	return Vector2i(int(world_pos.x / tile_size), int(world_pos.y / tile_size))
 
+func get_neural_state() -> Array:
+	var state = []
+	
+	var to_nest = nest_position - global_position
+	state.append(to_nest.normalized().x)
+	state.append(to_nest.normalized().y)
+	state.append(to_nest.length() / 1000.0)
+	
+	var food_dir = Vector2.ZERO
+	if target_food and is_instance_valid(target_food):
+		var to_food = target_food.global_position - global_position
+		food_dir = to_food.normalized()
+		state.append(to_food.length() / 500.0)
+	else:
+		state.append(1.0)
+	state.append(food_dir.x)
+	state.append(food_dir.y)
+	
+	var pheromone = pheromone_map.get_pheromone(global_position) / 10.0
+	state.append(pheromone)
+	
+	state.append(1.0 if has_food else 0.0)
+	
+	state.append(exploration_coverage / 100.0)
+	
+	state.append(float(food_collected) / 10.0)
+	
+	return state
+
+func calculate_immediate_reward(delta: float) -> float:
+	var reward = 0.0
+	
+	reward += 1.0 * delta
+	
+	if target_food and is_instance_valid(target_food):
+		var dist_to_food = global_position.distance_to(target_food.global_position)
+		if dist_to_food < 100:
+			reward += 2.0 * delta
+	
+	var new_coverage = exploration_coverage
+	if new_coverage > (new_coverage - 1):
+		reward += 2.0
+	
+	if get_slide_collision_count() > 0:
+		reward -= 0.5
+	
+	if stuck_timer > 2.0:
+		reward -= 1.0
+	
+	if revisit_count > 5:
+		reward -= 2.0
+	
+	var nearby_ant_count = 0
+	var nearby_ants = get_tree().get_nodes_in_group("ants")
+	for ant in nearby_ants:
+		if ant != self and is_instance_valid(ant):
+			if global_position.distance_to(ant.global_position) < 100:
+				nearby_ant_count += 1
+	
+	if nearby_ant_count > 3 and not has_food:
+		reward -= 1.0 * nearby_ant_count
+	
+	var to_nest = global_position.distance_to(nest_position)
+	if has_food and to_nest < 100:
+		reward += 5.0
+	
+	return reward
+
+func learn_from_experience():
+	if not brain or not experience_replay:
+		return
+	
+	var batch = experience_replay.sample_batch()
+	
+	if batch.size() == 0:
+		return
+	
+	for experience in batch:
+		if experience.state.size() == 0 or experience.next_state.size() == 0:
+			continue
+		
+		var predicted = brain.forward(experience.state)
+		
+		var target = predicted.duplicate()
+		
+		var max_next_q = 0.0
+		if not experience.done:
+			var next_q_values = brain.forward(experience.next_state)
+			if next_q_values.size() > 0:
+				for q in next_q_values:
+					max_next_q = max(max_next_q, q)
+		
+		var gamma = 0.95
+		var td_target = experience.reward + gamma * max_next_q
+		
+		for i in range(target.size()):
+			target[i] = td_target
+		
+		brain.backward(target, 0.5)
+
+func apply_neural_action(action: Array) -> Vector2:
+	if action.size() < 4:
+		return Vector2.RIGHT.rotated(rotation) * max_speed
+	
+	var turn_amount = action[0]
+	var speed_mult = action[1]
+	var follow_pheromone = action[2]
+	var explore_new = action[3]
+	
+	rotation += turn_amount * 0.1
+	
+	var speed = max_speed * clamp(1.0 + speed_mult, 0.5, 1.5)
+	
+	var direction = Vector2.RIGHT.rotated(rotation)
+	
+	if follow_pheromone > 0.3:
+		var pheromone_dir = pheromone_map.get_pheromone_gradient(global_position)
+		if pheromone_dir.length() > 0.1:
+			direction = direction.lerp(pheromone_dir, 0.5)
+	
+	if explore_new > 0.3:
+		direction = direction.rotated(randf_range(-0.5, 0.5))
+	
+	return direction.normalized() * speed
+
 func get_fitness() -> float:
 	var fitness = 0.0
 	
-	fitness += food_collected * 15000.0
+	var role_modifier = 1.0
+	var is_scout = scout_tendency > 0.6
+	var is_forager = forager_efficiency > 0.6
+	
+	fitness += food_collected * 10000.0
+	
+	fitness += discovery_bonus_earned * 5000.0
+	fitness += food_sources_discovered * 3000.0
+	
+	if is_scout:
+		fitness += exploration_coverage * 300.0
+		fitness += food_sources_discovered * 5000.0
+		if food_collected > 0 and food_collected <= 3:
+			fitness += 10000.0
+	else:
+		fitness += exploration_coverage * 100.0
+	
+	if is_forager:
+		if food_collected > 0:
+			var efficiency = food_collected / max(distance_traveled, 1.0)
+			fitness += efficiency * 8000.0
+		
+		if food_collected >= 5:
+			fitness += food_collected * 3000.0
+	else:
+		if food_collected > 0:
+			var efficiency = food_collected / max(distance_traveled, 1.0)
+			fitness += efficiency * 4000.0
 	
 	if food_collected > 0:
-		var efficiency = food_collected / max(distance_traveled, 1.0)
-		fitness += efficiency * 8000.0
-		
 		var time_per_food = time_alive / food_collected
 		if time_per_food < 30.0:
 			fitness += (30.0 - time_per_food) * 100.0
 	
-	fitness += successful_returns * 3000.0
-	
-	fitness += exploration_coverage * 50.0
+	fitness += successful_returns * 2000.0
 	
 	fitness -= collision_count * 10.0
 	if collision_count > 100:
@@ -505,8 +747,8 @@ func get_fitness() -> float:
 	
 	fitness -= failed_food_attempts * 100.0
 	
-	fitness -= revisit_count * 150.0
-	if revisit_count > 10:
+	fitness -= revisit_count * 100.0
+	if revisit_count > 15:
 		fitness -= 1000.0
 	
 	if food_collected == 0:
@@ -515,7 +757,7 @@ func get_fitness() -> float:
 		if time_alive > 90.0:
 			fitness -= 3000.0
 		
-		if revisit_count > 15:
+		if revisit_count > 20:
 			fitness -= 2000.0
 	
 	var survival_bonus = min(time_alive, 120.0) * 0.5
@@ -527,12 +769,20 @@ func get_fitness() -> float:
 			fitness += 100.0
 	
 	if food_collected >= 2:
-		fitness += pow(food_collected, 1.5) * 1000.0
+		var diminishing = min(food_collected, 10) + (max(0, food_collected - 10) * 0.3)
+		fitness += pow(diminishing, 1.3) * 600.0
+	
+	var diversity_bonus = 0.0
+	if is_scout and food_sources_discovered >= 2:
+		diversity_bonus += 8000.0
+	if is_forager and food_collected >= 10:
+		diversity_bonus += 8000.0
+	fitness += diversity_bonus
 	
 	return max(0.0, fitness)
 
 func export_brain_data() -> Dictionary:
-	return {
+	var data = {
 		"fitness": get_fitness(),
 		"food_collected": food_collected,
 		"successful_returns": successful_returns,
@@ -543,15 +793,23 @@ func export_brain_data() -> Dictionary:
 		"failed_attempts": failed_food_attempts,
 		"exploration_coverage": exploration_coverage,
 		"revisit_count": revisit_count,
+		"cumulative_reward": cumulative_reward,
 		"traits": {
 			"food_detection_range": food_detection_range,
 			"pheromone_follow_strength": pheromone_follow_strength,
 			"pheromone_deposit_rate": pheromone_deposit_rate,
 			"exploration_randomness": exploration_randomness,
 			"max_speed": max_speed,
-			"turn_speed": turn_speed
+			"turn_speed": turn_speed,
+			"scout_tendency": scout_tendency,
+			"forager_efficiency": forager_efficiency
 		}
 	}
+	
+	if brain:
+		data["neural_weights"] = brain.export_weights()
+	
+	return data
 
 func import_brain_data(data: Dictionary):
 	if data.has("traits"):
@@ -562,6 +820,11 @@ func import_brain_data(data: Dictionary):
 		exploration_randomness = traits.get("exploration_randomness", exploration_randomness)
 		max_speed = traits.get("max_speed", max_speed)
 		turn_speed = traits.get("turn_speed", turn_speed)
+		scout_tendency = traits.get("scout_tendency", scout_tendency)
+		forager_efficiency = traits.get("forager_efficiency", forager_efficiency)
+	
+	if data.has("neural_weights") and brain:
+		brain.import_weights(data["neural_weights"])
 
 func update_visuals():
 	if debug_label:

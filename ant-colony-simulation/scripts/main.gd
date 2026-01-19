@@ -71,13 +71,14 @@ func spawn_colony():
 	for i in range(initial_ant_count):
 		spawn_ant()
 
-func spawn_ant(position: Vector2 = Vector2.ZERO, parent_data: Dictionary = {}) -> AntAgent:
+func spawn_ant(spawn_position: Vector2 = Vector2.ZERO, parent_data: Dictionary = {}) -> AntAgent:
 	var ant = ant_scene.instantiate() as AntAgent
 	
-	if position == Vector2.ZERO:
-		position = nest.get_position_for_ant()
+	var final_position = spawn_position
+	if spawn_position == Vector2.ZERO:
+		final_position = nest.get_position_for_ant()
 	
-	ant.global_position = position
+	ant.global_position = final_position
 	ant.initialize(nest, pheromone_map)
 	
 	if parent_data.size() > 0:
@@ -362,6 +363,12 @@ func evolve_population():
 		child_traits = mutate_traits(child_traits)
 		
 		child_ant.import_brain_data({"traits": child_traits})
+		
+		if child_ant.enable_neural_learning:
+			crossover_neural_network(parent1, parent2, child_ant)
+			if child_ant.brain:
+				child_ant.brain.mutate(0.1, 0.15)
+		
 		reset_ant(child_ant)
 		
 		offspring_created += 1
@@ -473,8 +480,40 @@ func crossover_traits(parent1: AntAgent, parent2: AntAgent) -> Dictionary:
 	traits["exploration_randomness"] = parent1.exploration_randomness if randf() > 0.5 else parent2.exploration_randomness
 	traits["max_speed"] = parent1.max_speed if randf() > 0.5 else parent2.max_speed
 	traits["turn_speed"] = parent1.turn_speed if randf() > 0.5 else parent2.turn_speed
+	traits["scout_tendency"] = (parent1.scout_tendency + parent2.scout_tendency) / 2.0
+	traits["forager_efficiency"] = (parent1.forager_efficiency + parent2.forager_efficiency) / 2.0
 	
 	return traits
+
+func crossover_neural_network(parent1: AntAgent, parent2: AntAgent, child: AntAgent):
+	if not parent1 or not parent2 or not child:
+		return
+	if not is_instance_valid(parent1) or not is_instance_valid(parent2) or not is_instance_valid(child):
+		return
+	if not parent1.brain or not parent2.brain or not child.brain:
+		return
+	
+	var parent_brain = parent1.brain if randf() > 0.5 else parent2.brain
+	
+	for i in range(min(parent_brain.input_size, child.brain.input_size)):
+		for j in range(min(parent_brain.hidden_size, child.brain.hidden_size)):
+			if randf() > 0.5:
+				child.brain.weights_input_hidden[i][j] = parent1.brain.weights_input_hidden[i][j]
+			else:
+				child.brain.weights_input_hidden[i][j] = parent2.brain.weights_input_hidden[i][j]
+	
+	for i in range(min(parent_brain.hidden_size, child.brain.hidden_size)):
+		for j in range(min(parent_brain.output_size, child.brain.output_size)):
+			if randf() > 0.5:
+				child.brain.weights_hidden_output[i][j] = parent1.brain.weights_hidden_output[i][j]
+			else:
+				child.brain.weights_hidden_output[i][j] = parent2.brain.weights_hidden_output[i][j]
+	
+	for i in range(min(parent_brain.hidden_size, child.brain.hidden_size)):
+		child.brain.bias_hidden[i] = parent1.brain.bias_hidden[i] if randf() > 0.5 else parent2.brain.bias_hidden[i]
+	
+	for i in range(min(parent_brain.output_size, child.brain.output_size)):
+		child.brain.bias_output[i] = parent1.brain.bias_output[i] if randf() > 0.5 else parent2.brain.bias_output[i]
 
 func mutate_traits(traits: Dictionary) -> Dictionary:
 	var mutation_rate = 0.3
@@ -499,6 +538,10 @@ func mutate_traits(traits: Dictionary) -> Dictionary:
 					traits[trait_name] = clamp(traits[trait_name], 100.0, 250.0)
 				"turn_speed":
 					traits[trait_name] = clamp(traits[trait_name], 2.0, 10.0)
+				"scout_tendency":
+					traits[trait_name] = clamp(traits[trait_name], 0.0, 1.0)
+				"forager_efficiency":
+					traits[trait_name] = clamp(traits[trait_name], 0.0, 1.0)
 	
 	return traits
 
@@ -520,6 +563,13 @@ func reset_ant(ant: AntAgent):
 	ant.food_location = Vector2.ZERO
 	ant.current_target_tile = Vector2i(-1, -1)
 	ant.time_in_current_tile = 0.0
+	ant.last_state.clear()
+	ant.last_action.clear()
+	ant.cumulative_reward = 0.0
+	ant.learning_step_counter = 0
+	ant.food_sources_discovered = 0
+	ant.unique_food_sources.clear()
+	ant.discovery_bonus_earned = 0
 	ant.global_position = nest.get_position_for_ant()
 	ant.current_state = AntAgent.State.WANDERING
 	ant.has_food = false
@@ -546,7 +596,7 @@ func export_best_ant():
 func send_to_arduino():
 	print("✗ Arduino integration disabled for debugging")
 
-func _on_food_delivered(amount: int, total: int):
+func _on_food_delivered(amount: int, _total: int):
 	total_food_collected += amount
 
 func _on_food_depleted(food_source: FoodSource):
