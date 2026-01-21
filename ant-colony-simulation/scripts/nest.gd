@@ -2,7 +2,7 @@ extends Area2D
 class_name Nest
 
 @export var food_storage: int = 0
-@export var max_capacity: int = 1000
+@export var max_capacity: int = 10000
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var label: Label = $Label
@@ -17,6 +17,7 @@ func _ready():
 func receive_food(amount: int):
 	food_storage = min(food_storage + amount, max_capacity)
 	update_visual()
+	
 	if collection_particles:
 		collection_particles.emitting = true
 	
@@ -28,12 +29,12 @@ func receive_food(amount: int):
 
 func update_visual():
 	if label:
-		label.text = "Food: %d" % food_storage
+		label.text = "Nest: %d" % food_storage
 	
 	var fill_ratio = float(food_storage) / float(max_capacity)
-	sprite.modulate = Color(1.0 - fill_ratio * 0.5, 1.0, 1.0 - fill_ratio * 0.5)
+	sprite.modulate = Color(1.0 - fill_ratio * 0.3, 1.0, 1.0 - fill_ratio * 0.3)
 
 func get_position_for_ant() -> Vector2:
 	var angle = randf() * TAU
-	var distance = randf_range(20, 40)
+	var distance = randf_range(25, 45)
 	return global_position + Vector2(distance, 0).rotated(angle)

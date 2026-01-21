@@ -9,68 +9,44 @@ extends Control
 @onready var pheromone_label = $StatsPanel/VBoxContainer/PheromoneLabel
 @onready var arduino_label = $StatsPanel/VBoxContainer/ArduinoLabel
 
-@onready var controls_panel = $ControlsPanel
-@onready var export_button = $ControlsPanel/VBoxContainer/ExportButton
-@onready var send_button = $ControlsPanel/VBoxContainer/SendButton
-@onready var reset_button = $ControlsPanel/VBoxContainer/ResetButton
-
 func _ready():
-	if export_button:
-		export_button.pressed.connect(_on_export_pressed)
-	if send_button:
-		send_button.pressed.connect(_on_send_pressed)
-	if reset_button:
-		reset_button.pressed.connect(_on_reset_pressed)
+	if arduino_label:
+		arduino_label.text = "Learning: Q-Learning"
 
 func update_statistics(stats: Dictionary):
+	var ants = stats.get("ants", 0)
+	var food_collected = stats.get("food_collected", 0)
+	var active_food = stats.get("active_food", 0)
+	var total_food = stats.get("total_food", 0)
+	var time = stats.get("simulation_time", 0.0)
+	var pheromone = stats.get("pheromone_total", 0.0)
+	var epsilon = stats.get("avg_epsilon", 0.0)
+	var q_size = stats.get("avg_q_size", 0.0)
+	var deaths = stats.get("total_deaths", 0)
+	
+	var minutes = int(time / 60.0)
+	var seconds = int(time) % 60
+	
 	if generation_label:
-		generation_label.text = "Generation: %d" % stats.get("generation", 0)
+		generation_label.text = "Mode: Decentralized"
 	
 	if ants_label:
-		ants_label.text = "Ants: %d" % stats.get("ants", 0)
+		ants_label.text = "Ants: %d alive | %d died" % [ants, deaths]
 	
 	if food_label:
-		var active = stats.get("active_food", 0)
-		var total = stats.get("total_food", 0)
-		var collected = stats.get("food_collected", 0)
-		var remaining = stats.get("food_remaining", 0)
-		
-		food_label.text = "Food: %d collected | %d/%d sources (%d units left)" % [
-			collected,
-			active,
-			total,
-			remaining
-		]
-		
-		if active <= 3:
+		food_label.text = "Food: %d collected | %d/%d sources" % [food_collected, active_food, total_food]
+		if active_food <= 3:
 			food_label.modulate = Color.RED
-		elif active <= 6:
+		elif active_food <= 6:
 			food_label.modulate = Color.YELLOW
 		else:
 			food_label.modulate = Color.WHITE
 	
 	if time_label:
-		var time = stats.get("simulation_time", 0.0)
-		var minutes = int(time / 60.0)
-		var seconds = int(time) % 60
 		time_label.text = "Time: %d:%02d" % [minutes, seconds]
 	
 	if fitness_label:
-		fitness_label.text = "Best Fitness: %.1f" % stats.get("best_fitness", 0.0)
+		fitness_label.text = "Avg ε: %.3f | Q-size: %.0f" % [epsilon, q_size]
 	
 	if pheromone_label:
-		pheromone_label.text = "Pheromone: %.0f" % stats.get("pheromone_total", 0.0)
-	
-	if arduino_label:
-		var connected = stats.get("arduino_connected", false)
-		arduino_label.text = "Arduino: %s" % ("✓ Connected" if connected else "✗ Disconnected")
-		arduino_label.modulate = Color.GREEN if connected else Color.RED
-
-func _on_export_pressed():
-	get_parent().export_best_ant()
-
-func _on_send_pressed():
-	get_parent().send_to_arduino()
-
-func _on_reset_pressed():
-	get_parent().reset_simulation()
+		pheromone_label.text = "Pheromone: %.0f total" % pheromone
